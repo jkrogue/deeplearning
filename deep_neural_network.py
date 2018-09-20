@@ -30,15 +30,22 @@ class Layer:
     # list of acceptable activations
     activations = ['relu','sigmoid']
     
-    def __init__(self, n_curr, n_prev, activation):
+    def __init__(self, n_curr, n_prev, activation, use_previous=False):
         """
         Arguments:
         n_curr = number of nodes in this layer
         n_prev = number of nodes in previous layer
+        prev_layer = 
         activation = name of activation function, must be either 'relu' or 'sigmoid'
+        use_previous = if True, will use sqrt of n_prev to initialize this layer's W
+            (used in Andrew Ng's course assignment)
         """
         
-        self.W = np.random.randn(n_curr,n_prev) * 0.01
+        if use_previous:
+            self.W = np.random.randn(n_curr,n_prev) / np.sqrt(n_prev)
+        else:
+            self.W = np.random.randn(n_curr,n_prev) * 0.01
+        
         self.b = np.zeros((n_curr,1))
         self.Z = None
         self.A = None
@@ -272,18 +279,24 @@ class neural_network:
         AL = matrix of final output of network, initialized to zero initially.
             Updated whenever forward_prop is called
     
-    To use, first initialize, and then run train.  Call predict to get binarized predictions.
+    To use, first initialize, and then run train.  Call predict to get binarized predictions,
+        and use static methods accuracy and print_accuracy to generate accuracies
     
     All private methods are for internal use and shouldn't need to be called.
     """
     
-    def __init__(self, layer_dims):
+    def __init__(self, layer_dims, use_previous = False):
         """
         Initialize network
         
         Arguments:
         layer_dims: list of node sizes of network (e.g., [5,4,1] represents 2 layer network
             with 5 inputs, 4 nodes in hidden layer, and 1 node in output layer)
+            
+        use_previous: boolean indicating whether you should divide Weight matrix of one layer
+            by sqrt of number of nodes of previous layer when randomly initializing your
+            weights (as opposed to multiplying by 0.01)
+            
         """
         np.random.seed(1)
 
@@ -296,7 +309,7 @@ class neural_network:
             if l == (self.L): #last layer, use sigmoid activation function
                 activation = 'sigmoid'
 
-            curr_layer = Layer(layer_dims[l],layer_dims[l-1],activation)
+            curr_layer = Layer(layer_dims[l],layer_dims[l-1],activation, use_previous = use_previous)
             assert(curr_layer.W.shape == (layer_dims[l],layer_dims[l-1]))
             assert(curr_layer.b.shape == (layer_dims[l],1))
             self.layers[l] = curr_layer
@@ -313,11 +326,15 @@ class neural_network:
         learning_rate
         num_iterations = number of times to update parameters
         print_costs = if true, then will print out cost every 100 iterations
+        
+        Returns
+        costs: a list of the costs after every 100 iterations
         """
         
         assert(X.shape[1] == Y.shape[1])
         assert(X.shape[0] == self.layers[1].W.shape[1] and Y.shape[0] == self.layers[self.L].W.shape[0])
         
+        costs = []
         for i in range(num_iterations):
             self._forward_prop(X)
             self._backward_prop(X, Y, learning_rate)
@@ -325,16 +342,17 @@ class neural_network:
             if (i % 100 == 0) and print_costs:
                 cost = self.cost(Y)
                 print("Cost after {} iterations: {}".format(i,cost))
-                if (cost == np.nan):
-                    print('yeah!')
+                costs.append(cost)
+        return costs
                     
-    def predict(self):
+    def predict(self, X):
         """
         Produces binarized predictions (0 or 1) given current final output of network
         
         Returns
         Binarized predictions
         """
+        self._forward_prop(X)
         Y_hat = np.array(self.AL, copy=True)
         Y_hat[Y_hat <= 0.5] = 0
         Y_hat[Y_hat > 0.5] = 1
@@ -358,6 +376,38 @@ class neural_network:
         assert(cost.shape == ())
         
         return cost   
+
+    @staticmethod
+    def accuracy(y_hat, y):
+        """
+        Calculate accuracy of predictions (percent correct)
+        
+        Arguments:
+        y_hat: predictions
+        y: ground truth
+        
+        Returns
+        accuracy = percent of predictions that were correct from 0-100%
+        """
+        
+        correct = y_hat == y
+        true_predictions = correct[correct==True]
+        true_predictions = true_predictions.reshape(1,true_predictions.shape[0])
+        accuracy = (true_predictions.shape[1] / y.shape[1]) * 100
+        return accuracy
+    
+    @staticmethod
+    def print_accuracy(y_hat, y, dataset_name):
+        """
+        Method that prints out accuracy of predictions from 0-100%
+        
+        Arguments:
+        y_hat: predictions
+        y: ground truth
+        dataset_name: name of the dataset being graded (e.g., 'test' or 'train')
+        """
+        percent_right = neural_network.accuracy(y_hat, y)
+        print("{} accuracy: {:.2f}%".format(dataset_name,percent_right))
 
     def _forward_prop(self,X):
         """
@@ -398,6 +448,10 @@ class neural_network:
         None (layer parameters are updated internally)
         """
 
+        #Prevents division by zero
+        self.AL[self.AL == 0] = 0.000001
+        self.AL[self.AL == 1] = 0.999999
+
         dA = -1 * (Y/self.AL - (1-Y)/(1-self.AL))
         
         for l in reversed(range(1,self.L+1)):
@@ -426,36 +480,29 @@ class neural_network:
 
 
 if __name__ == '__main__':
-	layer = Layer(3,2, 'sigmoid')
+    layer = Layer(3,2, 'sigmoid')
 
-	A_prev = np.random.randn(2,500) * 0.01
+    A_prev = np.random.randn(2,500) * 0.01
 
-	A = layer.forward_prop(A_prev)
-	print(A.shape)
-	A
+    A = layer.forward_prop(A_prev)
+    print(A.shape)
+    A
 
-	layer = Layer(3,2, 'relu')
+    layer = Layer(3,2, 'relu')
 
-	A = layer.forward_prop(A_prev)
-	print(A.shape)
-	A
+    A = layer.forward_prop(A_prev)
+    print(A.shape)
+    A
 
-	np.random.seed(1)
+    np.random.seed(1)
 
-	X = np.random.randint(1,4,(3,2000))
-	print(X.shape)
-	Y = np.sum(X, axis=0, keepdims=True) > 5
-	print(Y.shape)
+    X = np.random.randint(1,4,(3,2000))
+    print(X.shape)
+    Y = np.sum(X, axis=0, keepdims=True) > 5
+    print(Y.shape)
 
-	nn = neural_network([3,5,1])
-	print(nn)
+    nn = neural_network([3,5,1])
+    print(nn)
 
-	nn.train(X,Y,num_iterations=2000,learning_rate = 0.05)
-	print(nn.AL.shape)
-	predictions = nn.predict()
-	correct = predictions == Y
-	true_predictions = correct[correct == True]
-	true_predictions = true_predictions.reshape(1,true_predictions.shape[0])
-	print("Accuracy = {}%".format(true_predictions.shape[1]/correct.shape[1] * 100))
-
-
+    costs = nn.train(X,Y,num_iterations=2000,learning_rate = 0.05)
+    neural_network.print_accuracy(nn.predict(X),Y,'Overall')
