@@ -2,7 +2,7 @@
 deep_neural_network.py
 This module provides implementation of a neural network via nested classes.
 The neural network class consists of multiple Layer objects, each of which
-	contains parameters pertaining to that layer (e.g., W, b, activation function, etc).
+    contains parameters pertaining to that layer (e.g., W, b, activation function, etc).
 
 Author = Justin Krogue
 '''
@@ -29,19 +29,27 @@ class Layer:
     
     # list of acceptable activations
     activations = ['relu','sigmoid']
+    initializations = ['he','xavier','standard']
     
-    def __init__(self, n_curr, n_prev, activation, use_previous=False):
+    def __init__(self, n_curr, n_prev, activation, initialization='standard', lambd = 0, keep_prob = 1):
         """
         Arguments:
         n_curr = number of nodes in this layer
         n_prev = number of nodes in previous layer
         prev_layer = 
         activation = name of activation function, must be either 'relu' or 'sigmoid'
-        use_previous = if True, will use sqrt of n_prev to initialize this layer's W
-            (used in Andrew Ng's course assignment)
+        initialization = which method to use to scale weights, must be either 'standard', 
+            'he', or 'xavier'
+        lambd = lambda value used for L2 regularization (will do nothing if = 0)
+        keep_prob = probability of node being included in dropout (all included if = 1)
         """
         
-        if use_previous:
+        if initialization not in self.initializations:
+            raise Exception('invalid initilization method')
+
+        if initialization == 'he':
+            self.W = np.random.randn(n_curr,n_prev) * np.sqrt(2/n_prev)
+        elif initialization == 'xavier':
             self.W = np.random.randn(n_curr,n_prev) / np.sqrt(n_prev)
         else:
             self.W = np.random.randn(n_curr,n_prev) * 0.01
@@ -51,6 +59,9 @@ class Layer:
         self.A = None
         self.dW = None
         self.db = None
+        self.D = None
+        self.lambd = lambd
+        self.keep_prob = keep_prob
         
         if activation not in self.activations:
             raise Exception('invalid activation function name')
@@ -60,12 +71,13 @@ class Layer:
         assert (self.W.shape == (n_curr, n_prev))
         assert(self.b.shape == (n_curr, 1))
         
-    def forward_prop(self, A_prev):
+    def forward_prop(self, A_prev, dropout = False):
         """
         Calculate Z and A.  These are stored internally and then A is returned
         
         Arguments:
         A_prev = output of layer before this one (e.g., output of layer 2 if this is layer 3)
+        dropout = boolean indicating whether you want dropout performed
         
         Returns:
         A
@@ -73,6 +85,13 @@ class Layer:
         
         self.Z = self._linear_fwd(A_prev)
         self.A = self._act_fwd(self.Z)
+        
+        if dropout and self.keep_prob < 1:
+            self.D = np.random.rand(self.A.shape[0],self.A.shape[1])
+            self.D = self.D < self.keep_prob
+            self.A *= self.D
+            self.A /= self.keep_prob
+                                    
         return self.A
 
     def backward_prop(self, dA, A_prev):
@@ -90,7 +109,7 @@ class Layer:
         
         dZ = self._act_bwd(dA)
         self.dW, self.db, dA_prev = self._linear_bwd(dZ, A_prev)
-        
+                
         return dA_prev
     
     def update_params(self, learning_rate):
@@ -160,8 +179,8 @@ class Layer:
         """
         
         m = dZ.shape[1]
-        
-        dW = 1/m * np.dot(dZ, A_prev.T)
+
+        dW = 1/m * np.dot(dZ, A_prev.T) + ((self.lambd/m) * self.W)
         db = 1/m * np.sum(dZ, axis=1, keepdims=True)
         dA_prev = np.dot(self.W.T, dZ)
         
@@ -185,6 +204,11 @@ class Layer:
         Returns:
         dZ
         """
+
+        # perform dropout if keep_prob < 1
+        if self.keep_prob < 1:
+            dA = self.D * dA
+            dA = dA / self.keep_prob
 
         if self.activation == 'relu':
             dZ = Layer._relu_bwd(dA, self.Z)
@@ -263,8 +287,8 @@ class Layer:
 
         dZ = np.array(dA, copy=True) # just converting dz to a correct object.
 
-        dZ[Z <= 0] = 0
-        
+        dZ = np.multiply(dZ, np.int64(Z > 0))
+
         return dZ
 
 
@@ -285,7 +309,7 @@ class neural_network:
     All private methods are for internal use and shouldn't need to be called.
     """
     
-    def __init__(self, layer_dims, use_previous = False):
+    def __init__(self, layer_dims, initialization = 'standard', lambd = 0, keep_prob = 1):
         """
         Initialize network
         
@@ -293,13 +317,13 @@ class neural_network:
         layer_dims: list of node sizes of network (e.g., [5,4,1] represents 2 layer network
             with 5 inputs, 4 nodes in hidden layer, and 1 node in output layer)
             
-        use_previous: boolean indicating whether you should divide Weight matrix of one layer
-            by sqrt of number of nodes of previous layer when randomly initializing your
-            weights (as opposed to multiplying by 0.01)
+        initialization = which method to use to scale weights, must be either 'standard',
+            'he', or 'xavier'
             
-        """
-        np.random.seed(1)
+        lambd = lambda value used for L2 regularization (will do nothing if = 0)
+        keep_prob = probability of node being included in dropout (all included if = 1)
 
+        """
         self.L = len(layer_dims) - 1
         self.layers = {}
         self.AL = None
@@ -308,8 +332,10 @@ class neural_network:
             activation = 'relu'
             if l == (self.L): #last layer, use sigmoid activation function
                 activation = 'sigmoid'
+                keep_prob = 1 #no dropout in the last layer
 
-            curr_layer = Layer(layer_dims[l],layer_dims[l-1],activation, use_previous = use_previous)
+            curr_layer = Layer(layer_dims[l],layer_dims[l-1],activation, initialization = initialization,
+                               lambd = lambd, keep_prob = keep_prob)
             assert(curr_layer.W.shape == (layer_dims[l],layer_dims[l-1]))
             assert(curr_layer.b.shape == (layer_dims[l],1))
             self.layers[l] = curr_layer
@@ -330,19 +356,23 @@ class neural_network:
         Returns
         costs: a list of the costs after every 100 iterations
         """
-        
+                
         assert(X.shape[1] == Y.shape[1])
         assert(X.shape[0] == self.layers[1].W.shape[1] and Y.shape[0] == self.layers[self.L].W.shape[0])
         
         costs = []
         for i in range(num_iterations):
-            self._forward_prop(X)
+            #np.random.seed(1) uncomment to run with regularization exercise
+            self._forward_prop(X, dropout=True)
             self._backward_prop(X, Y, learning_rate)
             
-            if (i % 100 == 0) and print_costs:
+            if print_costs and i % 1000 == 0:
                 cost = self.cost(Y)
-                print("Cost after {} iterations: {}".format(i,cost))
                 costs.append(cost)
+            # Print the loss every 10000 iterations
+            if print_costs and i % 10000 == 0:
+                print("Cost after iteration {}: {}".format(i, cost))
+
         return costs
                     
     def predict(self, X):
@@ -352,10 +382,10 @@ class neural_network:
         Returns
         Binarized predictions
         """
-        self._forward_prop(X)
+        self._forward_prop(X, dropout=False)
         Y_hat = np.array(self.AL, copy=True)
-        Y_hat[Y_hat <= 0.5] = 0
         Y_hat[Y_hat > 0.5] = 1
+        Y_hat[Y_hat <= 0.5] = 0
         
         return Y_hat
         
@@ -375,8 +405,14 @@ class neural_network:
         cost = np.squeeze(cost)
         assert(cost.shape == ())
         
-        return cost   
-
+        l2_cost = 0
+        for l in self.layers:
+            l2_cost += np.sum(self.layers[l].W ** 2)
+        l2_cost *= (self.layers[1].lambd / (2*m))
+        cost += l2_cost
+        
+        return cost
+        
     @staticmethod
     def accuracy(y_hat, y):
         """
@@ -409,7 +445,7 @@ class neural_network:
         percent_right = neural_network.accuracy(y_hat, y)
         print("{} accuracy: {:.2f}%".format(dataset_name,percent_right))
 
-    def _forward_prop(self,X):
+    def _forward_prop(self,X, dropout=False):
         """
         Private method for internal use.
         
@@ -417,6 +453,7 @@ class neural_network:
         
         Arguments
         X = inputs
+        dropout = whether or not dropout should be performed
         
         Returns
         None (AL is updated internally)
@@ -429,7 +466,7 @@ class neural_network:
         
         for l in self.layers:
             curr_layer = self.layers[l]
-            A_prev = curr_layer.forward_prop(A_prev)
+            A_prev = curr_layer.forward_prop(A_prev, dropout = dropout)
         
         self.AL = A_prev
     
@@ -475,7 +512,7 @@ class neural_network:
         to_return = ''
         for l in self.layers:
             layer = self.layers[l]
-            to_return += "Layer: {}\n\tW.shape = {}\n\tb.shape = {}\n\tactivation function = {}\n\n".format(l,layer.W.shape,layer.b.shape,layer.activation)
+            to_return += "Layer: {}\n\tW.shape = {}\n\tb.shape = {}\n\tactivation function = {}\n\tkeep_prob: {}\n\tlambda: {}\n\n".format(l,layer.W.shape,layer.b.shape,layer.activation,layer.keep_prob,layer.lambd)
         return to_return
 
 
