@@ -342,7 +342,7 @@ class neural_network:
 
         assert(len(self.layers) == self.L)
 
-    def train(self, X, Y, learning_rate = 0.05, num_iterations = 2000, print_costs = True):
+    def train(self, X, Y, learning_rate = 0.05, num_iterations = 2000, print_costs = True, print_interval = 100):
         """
         Trains the network by calling _forward_prop and _backward_prop repeatedly.
         
@@ -366,11 +366,12 @@ class neural_network:
             self._forward_prop(X, dropout=True)
             self._backward_prop(X, Y, learning_rate)
             
-            if print_costs and i % 1000 == 0:
+            cost_interval = print_interval / 10
+            if print_costs and i % cost_interval == 0:
                 cost = self.cost(Y)
                 costs.append(cost)
             # Print the loss every 10000 iterations
-            if print_costs and i % 10000 == 0:
+            if print_costs and i % print_interval == 0:
                 print("Cost after iteration {}: {}".format(i, cost))
 
         return costs
