@@ -199,8 +199,16 @@ class NeuralNetwork:
     def predict(self, X):
         self._forward_prop(X, keep_prob = 1)    #don't do dropout when predicting
         y_hat = np.copy(self.AL)
-        y_hat[y_hat > 0.5] = 1
-        y_hat[y_hat <= 0.5] = 0
+
+        #binary classification
+        if y_hat.shape[0] == 1:
+            y_hat[y_hat > 0.5] = 1
+            y_hat[y_hat <= 0.5] = 0
+
+        #multiclass classification
+        else:
+            y_hat = np.argmax(y_hat, axis=0)
+
         return y_hat
 
     @staticmethod
