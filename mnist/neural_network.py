@@ -190,15 +190,15 @@ class NeuralNetwork:
                 
                 t += 1
                 
-            if i % 100 == 0:
-                costs.append(cost)
-            if print_costs and i % 1000 == 0:
+            costs.append(cost)
+            if print_costs:
                 print('Cost after epoch {}/{}: {}'.format(i, num_epochs, cost))
         return costs
 
     def predict(self, X):
         self._forward_prop(X, keep_prob = 1)    #don't do dropout when predicting
         y_hat = np.copy(self.AL)
+        print(y_hat.shape)
 
         #binary classification
         if y_hat.shape[0] == 1:
@@ -207,7 +207,14 @@ class NeuralNetwork:
 
         #multiclass classification
         else:
-            y_hat = np.argmax(y_hat, axis=0)
+            y_hat[y_hat == np.amax(y_hat, axis = 0)] = 1
+            y_hat[y_hat < 1] = 0
+
+            multiplier = np.array(range(10)).reshape(10,1)
+
+            y_hat *= multiplier
+            y_hat = np.sum(y_hat, axis=0,keepdims = True)
+
 
         return y_hat
 
