@@ -34,7 +34,7 @@ class Layer:
     """
 
     #list of acceptable activations
-    act_funcs= ['relu', 'sigmoid']
+    act_funcs= ['relu', 'sigmoid', 'softmax']
 
     #list of acceptable initialization methods
     init_methods = ['standard', 'xavier', 'he']
@@ -89,6 +89,8 @@ class Layer:
         elif act_func == 'relu':
             self._act_fwd = Layer._relu_fwd
             self._act_bwd = Layer._relu_bwd
+        elif act_func == 'softmax':
+            self._act_fwd = Layer._softmax_fwd
 
 
     def forward_prop(self, A_prev, keep_prob):
@@ -301,6 +303,27 @@ class Layer:
 
         return np.int8(Z>0)
 
+    @staticmethod
+    def _softmax_fwd(Z):
+        """
+        Private, static method for internal use only (call with Layer._sigmoid)
+        
+        Arguments:
+        Z = linear output of layer
+        
+        Returns:
+        softmax activation function of Z (first computes e^Z elementwise and then
+            divides by sum of all e^Z)
+        """
+
+        T = np.exp(Z)
+
+        sum_T = np.sum(T, axis=0)
+        A = T / sum_T
+        assert(A.shape == Z.shape)
+        assert(np.sum(A[:,0]) >= 0.999), np.sum(A[:,0])
+        return A
+
     def __str__(self):
         '''
         Returns string representation of this layer containing shape of W and b, initialiation method used,
@@ -351,6 +374,8 @@ class NeuralNetwork:
             act_func = 'relu'
             if l == self.L:
                 act_func = 'sigmoid'
+                if layer_dims[l] > 1:
+                    act_func = 'softmax'
             self.layers[l] = Layer(layer_dims[l],layer_dims[l-1], act_func, init_method = init_method)
 
 
@@ -434,12 +459,6 @@ class NeuralNetwork:
             y_hat[y_hat == np.amax(y_hat, axis = 0)] = 1
             y_hat[y_hat < 1] = 0
 
-            multiplier = np.array(range(10)).reshape(10,1)
-
-            y_hat *= multiplier
-            y_hat = np.sum(y_hat, axis=0,keepdims = True)
-
-
         return y_hat
 
     @staticmethod
@@ -459,15 +478,25 @@ class NeuralNetwork:
 
         assert AL.shape == Y.shape
 
+        n = Y.shape[0]
         m = Y.shape[1]
 
         #Prevents division by zero
         AL[AL == 0] = 0.000001
         AL[AL == 1] = 0.999999
 
-        cost = -1/m * np.sum((Y * np.log(AL) + (1-Y) * np.log(1-AL)))
-        cost = np.squeeze(cost)
-        assert cost.shape == ()
+        # binary classification
+        if n == 1:
+            cost = -1/m * np.sum((Y * np.log(AL) + (1-Y) * np.log(1-AL)))
+            cost = np.squeeze(cost)
+            assert cost.shape == ()
+        
+        # multiclass classifier, use loss function for softmax
+        else:
+            loss_matrix = -Y * np.log(AL)
+            loss_vector = np.sum(loss_matrix, axis = 0, keepdims=True)
+            assert(loss_vector.shape == (1,m))
+            cost = np.squeeze(np.sum(loss_vector))
 
         #L2 regularization
         if lambd != 0:
@@ -558,6 +587,8 @@ class NeuralNetwork:
         None (layer parameters are updated internally)
         """
 
+        softmax = Y.shape[1] > 1
+
         #Prevents division by zero
         self.AL[self.AL == 0] = 0.000001
         self.AL[self.AL == 1] = 0.999999
@@ -570,9 +601,17 @@ class NeuralNetwork:
                 A_prev = X
             curr_layer = self.layers[l]
             
-            #no dropout on last layer
             if l == self.L:
-                dA = curr_layer.backward_prop(dA, A_prev, 1, lambd)
+
+                # implement backprop for softmax layer
+                if softmax:
+                    curr_layer.dZ = self.AL - Y
+                    dA = curr_layer._linear_bwd(curr_layer.dZ, A_prev, lambd)
+
+                # no dropout on last layer
+                else:
+                    dA = curr_layer.backward_prop(dA, A_prev, 1, lambd)
+
             else:
                 dA = curr_layer.backward_prop(dA, A_prev, keep_prob, lambd)
 
